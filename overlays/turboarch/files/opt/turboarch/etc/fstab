@@ -1,0 +1,4 @@
+PARTUUID=%ROOTPARTUUID%           	/         	ntfs3     	rw,relatime,uid=1000,gid=1000,acl,windows_names	0 0
+PARTUUID=%EFIPARTUUID%           	/boot/efi 	vfat      	rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro	0 2
+
+PARTUUID=%ROOTPARTUUID%          	%NTFS_MOUNTPOINT%         	ntfs3     	rw,relatime,uid=1000,gid=1000,acl,windows_names	0 0

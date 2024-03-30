@@ -1,0 +1,47 @@
+#!/bin/sh
+
+# TurboArch fsck.ntfs v0.1
+#
+# This script uses chkufsd binary extracted from Paragon's UFSD Root Mounter
+# for Android to check if the partition is healthy, reset the dirty flag if
+# needed and clean up after dirty shutdowns.
+
+CHKUFSD="/usr/bin/chkufsd"
+
+while [[ "$1" ]]; do
+	case "$1" in
+		"-a")
+			echo "$0: Performing auto check"
+			autocheck=1
+			;;
+		"--"*)
+			echo "$0: Unrecognised long option $1"
+			exit 1
+			;;
+		"-"*)
+			echo "$0: Unrecognised short option $1"
+			exit
+			;;
+		*)
+			target="$1"
+			;;
+	esac
+
+	shift
+done
+
+if ! [[ -z ${autocheck+x} ]] && ! [[ -z ${target+x} ]]; then
+	"$CHKUFSD" -fs:ntfs -a -f "$target"
+	exit $?
+else
+	cat <<HELP_END
+Usage: $0 -a <DEVICE>
+	-a: Automatic filesystem check and repair
+
+Example: $0 -a /dev/sda3
+
+With <3 from TurboArch developers
+HELP_END
+
+	exit 1
+fi

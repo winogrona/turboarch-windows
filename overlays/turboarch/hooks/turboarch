@@ -1,0 +1,6 @@
+add_file "$PROJECT_ROOT/data/install/install.sh" "$TA_ROOT/install.sh"
+add_file "$PROJECT_ROOT/data/install/install_functions.sh" "$TA_ROOT/install_functions.sh"
+add_file "$PROJECT_ROOT/common.sh" "$TA_ROOT/common.sh"
+add_file "$PROJECT_ROOT/data/etc/fstab" "$TA_ROOT/etc/fstab"
+add_file "$PROJECT_ROOT/data/ramdisk/mkinitcpio.conf" "/etc/mkinitcpio.conf"
+add_file "$PROJECT_ROOT/data/ramdisk/turboarch.hook" "/etc/initcpio/install/turboarch"

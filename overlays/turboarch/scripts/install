@@ -1,0 +1,66 @@
+#!/usr/bin/bash
+
+LOGGING=true
+source /opt/turboarch/common.sh
+source /opt/turboarch/install_functions.sh
+
+if (( $# < 5 )); then
+	error "usage: $0 <hostname> <username> <root PARTUUID> <ESP PARTUUID> <NTFS mountpoint>"
+	exit 2
+fi
+
+source /etc/turboarch.conf
+
+info "Congratulations on making to the setup step!"
+
+log "Configuration:"
+log "Hostname: $hostname"
+log "Username: $username"
+log "Root PARTUUID: $root_partuuid"
+log "ESP PARTUUID: $efi_partuuid"
+log "NTFS MOUNTPOINT: $ntfs_mountpoint"
+
+log "Setting the hostname"
+echo "$hostname" > /etc/hostname || fatal-error "Failed to set the hostname"
+
+log "Adding a new user with UID=1000"
+useradd -u 1000 -U "$username" || fatal-error "Failed to add a new user"
+mkhomedir_helper "$username" || fatal-error "Failed to create a home directory for the new user"
+
+password="$(ask-password "$username")"
+set-password "$username" "$password" || fatal-error "Failed to set the password for '$username'"
+
+if "$(ask-yesno "Use the same password for root?" true)"; then
+	root_password="$password"
+else
+	root_password="$(ask-password 'root')"
+fi
+	
+set-password "root" "$root_password" || fatal-error "Failed to set the password for root"
+
+log "Creating a fstab file"
+
+if ! sed "s/%ROOTPARTUUID%/$root_partuuid/g; s/%EFIPARTUUID%/$efi_partuuid/g; s/%NTFS_MOUNTPOINT%/${ntfs_mountpoint//\//\\/}/g" \
+		"$TA_ROOT/etc/fstab" > /etc/fstab; then
+	fatal-error "Failed to save the fstab file"
+fi
+
+mkinitcpio -P linux || fatal-error "Failed to generate initramfs"
+
+mkdir -p /boot/efi
+mkdir -p "$ntfs_mountpoint"
+mount "$(get-device-by-partuuid "$efi_partuuid")" /boot/efi || fatal-error "Failed to mount the ESP"
+
+log "Installing grub"
+
+grub-install "$(get-device-by-partuuid "$root_partuuid")" || fatal-error "Failed to install grub"
+echo "GRUB_DISABLE_OS_PROBER=fasle" >> /etc/default/grub
+grub-mkconfig -o /boot/grub/grub.cfg || fatal-error "Failed to generate the grub config"
+
+log "Removing installer's EFI entry"
+remove-installer-efi-entry
+
+info "Installation finished. Press any key to continue"
+press-any-key
+
+exit 0

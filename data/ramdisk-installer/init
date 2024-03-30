@@ -1,0 +1,146 @@
+#!/usr/bin/ash
+# SPDX-License-Identifier: GPL-2.0-only
+
+export PATH='/usr/local/sbin:/usr/local/bin:/usr/bin'
+NTFS_MOUNTPOINT="/mnt/ntfs"
+TURBOARCH_PREFIX="/TurboArch"
+PREFIX="$NTFS_MOUNTPOINT/$TURBOARCH_PREFIX"
+
+udevd_running=0
+init=/sbin/init
+rd_logmask=0
+
+. /init_functions
+
+mount_setup
+
+# parse the kernel command line
+parse_cmdline </proc/cmdline
+
+# setup logging as early as possible
+rdlogger_start
+
+# busybox ash supports string replacements
+# shellcheck disable=SC3060
+# assigned by parse_cmdline
+# shellcheck disable=SC2154
+for d in ${disablehooks//,/ }; do
+    [ -e "/hooks/$d" ] && chmod 644 "/hooks/$d"
+done
+
+# shellcheck disable=SC1091
+. /config
+
+# We rely on word splitting
+# shellcheck disable=SC2086
+run_hookfunctions 'run_earlyhook' 'early hook' $EARLYHOOKS
+
+if [ -n "$earlymodules$MODULES" ]; then
+    # busybox ash supports string replacements
+    # shellcheck disable=SC3060,SC2086
+    modprobe -qab ${earlymodules//,/ } $MODULES
+fi
+
+# We rely on word splitting
+# shellcheck disable=SC2086
+run_hookfunctions 'run_hook' 'hook' $HOOKS
+
+# honor the old behavior of break=y as a synonym for break=premount
+# assigned by parse_cmdline
+# shellcheck disable=SC2154
+if [ "${break}" = "y" ] || [ "${break}" = "premount" ]; then
+    # shellcheck disable=SC2086
+    run_hookfunctions 'run_emergencyhook' 'emergency hook' $EMERGENCYHOOKS
+    echo ":: Pre-mount break requested, type 'exit' to resume operation"
+    launch_interactive_shell
+fi
+
+if rootdev="$(resolve_device "$root")"; then
+    # If the tag is supported by util-linux mount, pass it as is.
+    # Otherwise, use the resolved device path.
+    case "$root" in
+        'UUID='* | 'LABEL='* | 'PARTUUID='* | 'PARTLABEL='*) : ;;
+        *) root="$rootdev" ;;
+    esac
+fi
+unset rootdev
+
+fsck_root
+
+# Mount root at /new_root
+
+mkdir -p "$NTFS_MOUNTPOINT"
+turboarch_mount_handler /new_root $NTFS_MOUNTPOINT
+
+# We rely on word splitting
+# shellcheck disable=SC2086
+run_hookfunctions 'run_latehook' 'late hook' $LATEHOOKS
+
+# We rely on word splitting
+# shellcheck disable=SC2086
+run_hookfunctions 'run_cleanuphook' 'cleanup hook' $CLEANUPHOOKS
+
+if [ "$(stat -c %D /)" = "$(stat -c %D /new_root)" ]; then
+    # Nothing got mounted on /new_root. This is the end, we don't know what to do anymore
+    # We fall back into a shell, but the shell has now PID 1
+    # This way, manual recovery is still possible.
+    # shellcheck disable=SC2086
+    run_hookfunctions 'run_emergencyhook' 'emergency hook' $EMERGENCYHOOKS
+    err "Failed to mount the real root device."
+    echo "Bailing out, you are on your own. Good luck."
+    echo
+    launch_interactive_shell --exec
+fi
+
+if [ "${break}" = "postmount" ]; then
+    # shellcheck disable=SC2086
+    run_hookfunctions 'run_emergencyhook' 'emergency hook' $EMERGENCYHOOKS
+    echo ":: Post-mount break requested, type 'exit' to resume operation"
+    launch_interactive_shell
+fi
+
+############### TURBOARCH INSTALLATION ##################
+
+fatal_error() {
+    echo ":: Installation failed (code $1). Rebooting in 10 seconds"
+    sleep 10
+    reboot -f
+}
+
+echo -e ":: Unpacking rootfs, please wait..."
+
+for tarball in $(ls $PREFIX/tarballs/); do
+    echo "Unpacking $tarball..."
+    tar -xf "$PREFIX/tarballs/$tarball" -C "$PREFIX/root/" || fatal_error "$?"
+done
+
+for fs in dev sys proc dev/pts sys/firmware/efi/efivars; do
+    mkdir -p "/new_root/$fs"
+    mount --bind "/$fs" "/new_root/$fs"
+done
+
+CONFIG_PREFIX="$PREFIX/setup_config"
+chroot /new_root "/bin/bash" /opt/turboarch/install.sh \
+    "$(cat "$CONFIG_PREFIX/hostname")" \
+    "$(cat "$CONFIG_PREFIX/username")" \
+    "$(cat "$CONFIG_PREFIX/root_partuuid")" \
+    "$(cat "$CONFIG_PREFIX/efi_partuuid")" \
+    "$(cat "$CONFIG_PREFIX/ntfs_mountpoint")" || fatal_error "$?"
+
+# Busybox umount doesn't support -R
+for fs in dev sys proc dev/pts sys/firmware/efi/efivars; do
+    umount "/new_root/$fs"
+done
+
+echo ":: Installation succeeded. Rebooting after 10s"
+
+sleep 10
+
+reboot -f
+
+sleep 10
+echo ":: Failed to reboot. Cry about it (Just reboot by holding the power button)"
+
+while true; do
+    true;
+done
